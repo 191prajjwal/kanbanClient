@@ -20,12 +20,21 @@ const NavBar = styled.nav`
   align-items: center;
   padding: 1.5rem 2rem;
   background: rgba(26, 31, 53, 0.95);
+
+  @media (max-width: 768px) {
+    padding: 1rem 1.5rem;
+  }
 `;
 
 const Logo = styled.div`
   font-size: 1.75rem;
   font-weight: 700;
   color: #2196f3;
+  margin-right: auto; /* Ensures space between logo and button */
+
+  @media (max-width: 768px) {
+    margin-right: 1rem; /* Adds some margin on smaller screens */
+  }
 `;
 
 const MainContent = styled.div`
@@ -100,7 +109,7 @@ const Button = styled.button`
   `}
 
   @media (max-width: 768px) {
-    width: 100%;
+    padding: 0.7rem 5rem; 
   }
 `;
 

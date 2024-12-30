@@ -9,18 +9,29 @@ import { Plus, MoreVertical, Users, Trash2 } from 'lucide-react';
 
 const BoardContainer = styled.div`
   min-height: 100vh;
-  padding: 2rem;
+  padding: 1rem;
   background: linear-gradient(135deg, #1a1f35 0%, #283352 100%);
+  
+  @media (min-width: 768px) {
+    padding: 2rem;
+  }
 `;
 
 const BoardHeader = styled.div`
   display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 2rem;
+  flex-direction: column;
+  gap: 1rem;
+  margin-bottom: 1rem;
   padding: 1rem;
   background: rgba(255, 255, 255, 0.05);
   border-radius: 12px;
+
+  @media (min-width: 768px) {
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 2rem;
+  }
 `;
 
 
@@ -103,9 +114,29 @@ const AddColumnButton = styled.button`
 
 const ColumnsWrapper = styled.div`
   display: flex;
-  gap: 1.5rem;
+  gap: 1rem;
   overflow-x: auto;
   padding-bottom: 1rem;
+  min-height: 0; // Important for proper scrolling
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.3) transparent;
+  
+  &::-webkit-scrollbar {
+    height: 8px;
+  }
+  
+  &::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  
+  &::-webkit-scrollbar-thumb {
+    background-color: rgba(255, 255, 255, 0.3);
+    border-radius: 4px;
+  }
+
+  @media (min-width: 768px) {
+    gap: 1.5rem;
+  }
 `;
 
 const ColumnContainer = styled.div`
@@ -388,7 +419,7 @@ const KanbanBoard = () => {
     <Plus size={20} /> Add Column
   </AddColumnButton>
   <UserInfo>
-    <UserName>{localStorage.getItem("email") || "Ghost"}</UserName>
+    <UserName>{localStorage.getItem("user") || "Ghost"}</UserName>
     <LogoutButton 
       onClick={handleLogout} 
       title="Sign out of your account"

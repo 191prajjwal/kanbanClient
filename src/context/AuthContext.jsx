@@ -16,6 +16,7 @@ const AuthProvider = ({ children }) => {
 
   const login = (userData, token) => {
     localStorage.setItem("token", token);
+    localStorage.setItem("user",userData.email);
     setUser(userData);
     navigate("/dashboard");
   };

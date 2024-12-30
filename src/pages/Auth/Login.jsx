@@ -138,6 +138,7 @@ const Login = () => {
     try {
       const response = await axiosInstance.post("/auth/login", { email, password });
       const { user, token } = response.data;
+      console.log(user)
       login(user, token);
     } catch (err) {
       setError(err.response?.data?.message || "Login failed. Please try again.");
