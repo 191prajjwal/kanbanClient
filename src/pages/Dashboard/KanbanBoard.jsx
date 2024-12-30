@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState ,useCallback} from 'react';
 import { DragDropContext, Droppable, Draggable } from 'react-beautiful-dnd';
 import styled from 'styled-components';
 import axiosInstance from '../../api/axiosInstance';
@@ -140,11 +140,20 @@ const ColumnsWrapper = styled.div`
 `;
 
 const ColumnContainer = styled.div`
-  flex: 0 0 320px;
+  flex: 0 0 280px;
+  max-width: 90vw;
   background: rgba(255, 255, 255, 0.05);
   border-radius: 12px;
   border: 1px solid rgba(255, 255, 255, 0.1);
   backdrop-filter: blur(10px);
+  height: fit-content;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+
+  @media (min-width: 768px) {
+    flex: 0 0 320px;
+  }
 `;
 
 const ColumnHeader = styled.div`
@@ -198,7 +207,22 @@ const ActionButton = styled.button`
 
 const TaskList = styled.div`
   padding: 1rem;
-  min-height: 200px;
+  min-height: 100px;
+  overflow-y: auto;
+  flex-grow: 1;
+  
+  &::-webkit-scrollbar {
+    width: 6px;
+  }
+  
+  &::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  
+  &::-webkit-scrollbar-thumb {
+    background-color: rgba(255, 255, 255, 0.3);
+    border-radius: 3px;
+  }
 `;
 
 const TaskCard = styled.div`
@@ -207,8 +231,18 @@ const TaskCard = styled.div`
   border-radius: 8px;
   padding: 1rem;
   margin-bottom: 0.75rem;
-  cursor: move;
+  cursor: grab;
   position: relative;
+  user-select: none; // Prevent text selection while dragging
+
+  &:active {
+    cursor: grabbing;
+  }
+
+  ${props => props.isDragging && `
+    box-shadow: 0 5px 10px rgba(0,0,0,0.15);
+    opacity: 0.8;
+  `}
 
   &:before {
     content: '';
@@ -230,6 +264,32 @@ const TaskCard = styled.div`
           return '#4caf50';
       }
     }};
+    cursor: help;
+  }
+
+  &:hover::after {
+    content: ${props => {
+      switch(props.priority?.toLowerCase()) {
+        case 'high':
+          return '"High Priority"';
+        case 'medium':
+          return '"Medium Priority"';
+        case 'low':
+          return '"Low Priority"';
+        default:
+          return '"Low Priority"';
+      }
+    }};
+    position: absolute;
+    top: 0.5rem;
+    right: 2rem;
+    background: rgba(0, 0, 0, 0.8);
+    color: white;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 12px;
+    white-space: nowrap;
+    z-index: 1000;
   }
 `;
 
@@ -278,6 +338,23 @@ const TaskFooter = styled.div`
 const TaskAssigned = styled.div`
   color: #a4b1cd;
   font-size: 0.875rem;
+  position: relative;
+  cursor: help;
+
+  &:hover::after {
+    content: ${props => props.email ? `"This task is assigned to ${props.email}"` : '""'};
+    position: absolute;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0, 0, 0, 0.8);
+    color: white;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 12px;
+    white-space: nowrap;
+    z-index: 1000;
+  }
 `;
 
 const LoadingScreen = styled.div`
@@ -309,11 +386,17 @@ const KanbanBoard = () => {
     try {
       const response = await axiosInstance.get('/columns');
       setColumns(response.data);
+      
+      const taskPromises = response.data.map(column => 
+        axiosInstance.get(`/tasks/${column._id}`)
+      );
+      
+      const tasksResponses = await Promise.all(taskPromises);
       const tasksByColumn = {};
-      for (const column of response.data) {
-        const tasksResponse = await axiosInstance.get(`/tasks/${column._id}`);
-        tasksByColumn[column._id] = tasksResponse.data || [];
-      }
+      response.data.forEach((column, index) => {
+        tasksByColumn[column._id] = tasksResponses[index].data || [];
+      });
+      
       setTasks(tasksByColumn);
     } catch (error) {
       console.error('Error fetching board data:', error);
@@ -361,37 +444,63 @@ const KanbanBoard = () => {
     }
   };
 
-  const onDragEnd = async ({ source, destination }) => {
+
+
+
+  const onDragEnd = useCallback(async (result) => {
+    const { source, destination, draggableId } = result;
+    
+    // Check if we have a valid destination
     if (!destination) return;
-  
-    const sourceColumnId = source.droppableId;
-    const destColumnId = destination.droppableId;
-    
-    const newTasks = { ...tasks };
-    const sourceColumn = [...newTasks[sourceColumnId]];
-    const destColumn = sourceColumnId === destColumnId ? 
-      sourceColumn : [...newTasks[destColumnId]];
-    
-    const [removed] = sourceColumn.splice(source.index, 1);
-    destColumn.splice(destination.index, 0, removed);
-  
-    setTasks({
-      ...newTasks,
-      [sourceColumnId]: sourceColumn,
-      [destColumnId]: destColumn
-    });
-  
+
+    // Check if task was dropped in the same position
+    if (
+      source.droppableId === destination.droppableId &&
+      source.index === destination.index
+    ) return;
+
     try {
-      await axiosInstance.put(`/tasks/${removed._id}`, {
-        ...removed,
-        columnId: destColumnId
+      // Find the task that was dragged
+      const sourceColumnTasks = tasks[source.droppableId];
+      if (!sourceColumnTasks) return;
+
+      const taskToMove = sourceColumnTasks.find(task => task._id === draggableId);
+      if (!taskToMove) return;
+
+      // Create copies of the task arrays
+      const newTasks = { ...tasks };
+      const sourceColumn = [...tasks[source.droppableId]];
+      const destColumn = source.droppableId === destination.droppableId
+        ? sourceColumn
+        : [...(tasks[destination.droppableId] || [])];
+
+      // Remove from source column
+      sourceColumn.splice(source.index, 1);
+
+      // Add to destination column
+      destColumn.splice(destination.index, 0, {
+        ...taskToMove,
+        columnId: destination.droppableId
+      });
+
+      // Update state optimistically
+      setTasks({
+        ...newTasks,
+        [source.droppableId]: sourceColumn,
+        [destination.droppableId]: destColumn
+      });
+
+      // Make API call to update the task
+      await axiosInstance.put(`/tasks/${taskToMove._id}`, {
+        ...taskToMove,
+        columnId: destination.droppableId
       });
     } catch (error) {
       console.error('Error updating task position:', error);
-     
-      setTasks(newTasks);
+      // Revert changes on error
+      fetchColumns();
     }
-  };
+  }, [tasks]);
 
   const handleDeleteTask = async (taskId) => {
     if (window.confirm('Are you sure you want to delete this task?')) {
@@ -404,6 +513,23 @@ const KanbanBoard = () => {
     }
   };                                             
 
+
+   const fetchUserEmail = async (userId) => {
+    try {
+      const response = await fetch(`http://localhost:4000/api/auth/user/${userId}`);
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      return data.email;
+    } catch (error) {
+      console.error('Error fetching user email:', error);
+      throw error;
+    }
+  };
+
   if (loading) {
     return <LoadingScreen>Loading...</LoadingScreen>;
   }
@@ -411,38 +537,30 @@ const KanbanBoard = () => {
   return (
     <BoardContainer>
     <BoardHeader>
-  <Logo>
-    📋 Kanban Board
-  </Logo>
+        <Logo>📋 Kanban Board</Logo>
+        <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
+          <AddColumnButton onClick={() => setShowColumnModal(true)}>
+            <Plus size={20} /> Add Column
+          </AddColumnButton>
+          <UserInfo>
+            <UserName>{localStorage.getItem("user") || "Ghost"}</UserName>
+            <LogoutButton onClick={handleLogout}>Logout</LogoutButton>
+          </UserInfo>
+        </div>
+      </BoardHeader>
 
-  <AddColumnButton onClick={() => setShowColumnModal(true)} title="Create a new column">
-    <Plus size={20} /> Add Column
-  </AddColumnButton>
-  <UserInfo>
-    <UserName>{localStorage.getItem("user") || "Ghost"}</UserName>
-    <LogoutButton 
-      onClick={handleLogout} 
-      title="Sign out of your account"
-    >
-      Logout
-    </LogoutButton>
-  </UserInfo>
-
-</BoardHeader>
-
-{columns.length === 0 ? (
-  <EmptyState>
-    <h3>Welcome to your Kanban Board!</h3>
-    <p>Get started by creating your first column using the "Add Column" button above.</p>
-    <p>Then you can add tasks to your columns and organize your work.</p>
-  </EmptyState>
-) : (
-  <DragDropContext onDragEnd={onDragEnd}>
-        <ColumnsWrapper>
-          {columns.map((column) => (
-            <ColumnContainer key={column._id}>
-              <ColumnHeader>
-  <ColumnTitle>{column.title}</ColumnTitle>
+      {columns.length === 0 ? (
+        <EmptyState>
+          <h3>Welcome to your Kanban Board!</h3>
+          <p>Get started by creating your first column using the "Add Column" button above.</p>
+        </EmptyState>
+      ) : (
+        <DragDropContext onDragEnd={onDragEnd}>
+          <ColumnsWrapper>
+            {columns.map((column) => (
+              <ColumnContainer key={column._id}>
+                <ColumnHeader>
+                  <ColumnTitle>{column.title}</ColumnTitle>
   <ColumnActions>
   <ActionButton
     onClick={() => {
@@ -473,42 +591,79 @@ const KanbanBoard = () => {
 </ColumnHeader>
 
 
-              <Droppable droppableId={column._id}>
-                {(provided) => (
-                  <TaskList
-                    {...provided.droppableProps}
-                    ref={provided.innerRef}
-                  >
-                    {tasks[column._id]?.map((task, index) => (
-                      <Draggable
-                        key={task._id}
-                        draggableId={task._id}
-                        index={index}
-                      >
-                        {(provided) => (
-                          <TaskCard
-                          ref={provided.innerRef}
-                          {...provided.draggableProps}
-                          {...provided.dragHandleProps}
-                          priority={task.priority}
-                        >
-                          <TaskTitle>{task.title}</TaskTitle>
-                          {task.description && (
-                            <TaskDescription>
-                              {task.description.length > 100 
-                                ? `${task.description.slice(0, 100)}...` 
-                                : task.description}
-                              {task.description.length > 100 && (
-                                <div className="full-description">{task.description}</div>
-                              )}
-                            </TaskDescription>
-                          )}
-                          <TaskDueDate>Due: {new Date(task.dueDate).toLocaleDateString()}</TaskDueDate>
-                          <TaskFooter>
-                            <TaskAssigned>
-                              {task.assignedTo || ""}
-                            </TaskAssigned>
-                            <div style={{ display: 'flex', gap: '0.5rem' }}>
+<Droppable droppableId={column._id.toString()}>
+                  {(provided, snapshot) => (
+                    <TaskList
+                      ref={provided.innerRef}
+                      {...provided.droppableProps}
+                      style={{
+                        backgroundColor: snapshot.isDraggingOver 
+                          ? 'rgba(255, 255, 255, 0.1)' 
+                          : 'transparent'
+                      }}
+                    >
+                     {(tasks[column._id] || []).map((task, index) => ( 
+  <Draggable 
+    key={task._id}
+    draggableId={task._id.toString()}
+    index={index}
+  >
+    {(provided, snapshot) => (
+      <TaskCard
+        ref={provided.innerRef}
+        {...provided.draggableProps}
+        {...provided.dragHandleProps}
+        priority={task.priority}
+        isDragging={snapshot.isDragging}
+        style={{
+          ...provided.draggableProps.style,
+          opacity: snapshot.isDragging ? 0.8 : 1
+        }}
+      >
+        <TaskTitle>{task.title}</TaskTitle>
+        {task.description && (
+          <TaskDescription>
+            {task.description.length > 60 
+              ? `${task.description.slice(0, 60)}...` 
+              : task.description}
+            {task.description.length > 60 && (
+              <div className="full-description">{task.description}</div>
+            )}
+          </TaskDescription>
+        )}
+        <TaskDueDate>
+          Due: {new Date(task.dueDate).toLocaleDateString()}
+        </TaskDueDate>
+        <TaskFooter>
+        <TaskAssigned email={task.assignedTo ? 
+    (() => {
+      const [email, setEmail] = useState('');
+      
+      useEffect(() => {
+        fetchUserEmail(task.assignedTo)
+          .then(setEmail)
+          .catch(err => console.error('Error:', err));
+      }, [task.assignedTo]);
+      
+      return email || 'Loading...';
+    })() 
+    : ""}>
+  {task.assignedTo ? 
+    (() => {
+      const [email, setEmail] = useState('');
+      
+      useEffect(() => {
+        fetchUserEmail(task.assignedTo)
+          .then(setEmail)
+          .catch(err => console.error('Error:', err));
+      }, [task.assignedTo]);
+      
+      return email || 'Loading...';
+    })() 
+    : ""
+  }
+</TaskAssigned>
+          <div style={{ display: 'flex', gap: '0.5rem' }}>
                               <ActionButton
                                 onClick={() => {
                                   setEditingTask(task);
