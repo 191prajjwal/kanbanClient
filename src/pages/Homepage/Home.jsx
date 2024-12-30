@@ -10,7 +10,7 @@ const fadeIn = keyframes`
 const HomeContainer = styled.div`
   min-height: 100vh;
   background: linear-gradient(135deg, #1a1f35 0%, #283352 100%);
-  color: #ffffff;
+  color:hsl(0, 0.00%, 100.00%);
   font-family: 'Inter', sans-serif;
 `;
 
