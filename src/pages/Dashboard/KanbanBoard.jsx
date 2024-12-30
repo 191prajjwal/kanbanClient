@@ -18,6 +18,64 @@ const BoardHeader = styled.div`
   justify-content: space-between;
   align-items: center;
   margin-bottom: 2rem;
+  padding: 1rem;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 12px;
+`;
+
+
+const Logo = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  font-size: 1.5rem;
+  color: white;
+  font-weight: bold;
+`;
+
+const UserInfo = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+`;
+
+const UserName = styled.span`
+  color: white;
+  font-weight: 500;
+`;
+
+const LogoutButton = styled.button`
+  padding: 0.5rem 1rem;
+  background: #dc3545;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.2s;
+
+  &:hover {
+    background: #c82333;
+  }
+`;
+
+
+const EmptyState = styled.div`
+  text-align: center;
+  color: #a4b1cd;
+  padding: 2rem;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 12px;
+  margin: 2rem auto;
+  max-width: 600px;
+
+  h3 {
+    color: white;
+    margin-bottom: 1rem;
+  }
+
+  p {
+    margin-bottom: 1rem;
+  }
 `;
 
 const BoardTitle = styled.h1`
@@ -85,9 +143,25 @@ const ActionButton = styled.button`
   cursor: pointer;
   border-radius: 4px;
   transition: background 0.2s;
+  position: relative;
 
   &:hover {
     background: rgba(255, 255, 255, 0.1);
+  }
+
+  &:hover::after {
+    content: attr(title);
+    position: absolute;
+    bottom: -30px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0, 0, 0, 0.8);
+    color: white;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 12px;
+    white-space: nowrap;
+    z-index: 1000;
   }
 `;
 
@@ -103,10 +177,64 @@ const TaskCard = styled.div`
   padding: 1rem;
   margin-bottom: 0.75rem;
   cursor: move;
+  position: relative;
+
+  &:before {
+    content: '';
+    position: absolute;
+    top: 1rem;
+    right: 1rem;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background-color: ${props => {
+      switch(props.priority?.toLowerCase()) {
+        case 'high':
+          return '#ff4444';
+        case 'medium':
+          return '#ffa000';
+        case 'low':
+          return '#4caf50';
+        default:
+          return '#4caf50';
+      }
+    }};
+  }
 `;
 
 const TaskTitle = styled.div`
   color: white;
+  margin-bottom: 0.5rem;
+  padding-right: 1.5rem;
+`;
+
+const TaskDescription = styled.div`
+  color: #a4b1cd;
+  font-size: 0.875rem;
+  margin-bottom: 0.5rem;
+  position: relative;
+
+  .full-description {
+    display: none;
+    position: absolute;
+    top: 100%;
+    left: 0;
+    background: #1a1f35;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    padding: 1rem;
+    border-radius: 8px;
+    z-index: 10;
+    width: 250px;
+  }
+
+  &:hover .full-description {
+    display: block;
+  }
+`;
+
+const TaskDueDate = styled.div`
+  color: #a4b1cd;
+  font-size: 0.75rem;
   margin-bottom: 0.5rem;
 `;
 
@@ -153,7 +281,7 @@ const KanbanBoard = () => {
       const tasksByColumn = {};
       for (const column of response.data) {
         const tasksResponse = await axiosInstance.get(`/tasks/${column._id}`);
-        tasksByColumn[column._id] = tasksResponse.data;
+        tasksByColumn[column._id] = tasksResponse.data || [];
       }
       setTasks(tasksByColumn);
     } catch (error) {
@@ -161,6 +289,19 @@ const KanbanBoard = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+
+  const handleLogout = () => {
+ 
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+  
+
+    delete axiosInstance.defaults.headers.common['Authorization'];
+  
+  
+    window.location.href = '/';
   };
 
   const handleColumnSubmit = async (title) => {
@@ -191,22 +332,33 @@ const KanbanBoard = () => {
 
   const onDragEnd = async ({ source, destination }) => {
     if (!destination) return;
-
+  
     const sourceColumnId = source.droppableId;
     const destColumnId = destination.droppableId;
-    const taskId = tasks[sourceColumnId][source.index]._id;
-
+    
+    const newTasks = { ...tasks };
+    const sourceColumn = [...newTasks[sourceColumnId]];
+    const destColumn = sourceColumnId === destColumnId ? 
+      sourceColumn : [...newTasks[destColumnId]];
+    
+    const [removed] = sourceColumn.splice(source.index, 1);
+    destColumn.splice(destination.index, 0, removed);
+  
+    setTasks({
+      ...newTasks,
+      [sourceColumnId]: sourceColumn,
+      [destColumnId]: destColumn
+    });
+  
     try {
-      await axiosInstance.put(`/tasks/${taskId}`, { columnId: destColumnId });
-      
-      const newTasks = { ...tasks };
-      const [movedTask] = newTasks[sourceColumnId].splice(source.index, 1);
-      movedTask.columnId = destColumnId;
-      newTasks[destColumnId].splice(destination.index, 0, movedTask);
-      
-      setTasks(newTasks);
+      await axiosInstance.put(`/tasks/${removed._id}`, {
+        ...removed,
+        columnId: destColumnId
+      });
     } catch (error) {
       console.error('Error updating task position:', error);
+     
+      setTasks(newTasks);
     }
   };
 
@@ -227,44 +379,66 @@ const KanbanBoard = () => {
 
   return (
     <BoardContainer>
-      <BoardHeader>
-        <BoardTitle>Kanban Board</BoardTitle>
-        <AddColumnButton onClick={() => setShowColumnModal(true)}>
-          <Plus size={20} /> Add Column
-        </AddColumnButton>
-      </BoardHeader>
+    <BoardHeader>
+  <Logo>
+    📋 Kanban Board
+  </Logo>
 
-      <DragDropContext onDragEnd={onDragEnd}>
+  <AddColumnButton onClick={() => setShowColumnModal(true)} title="Create a new column">
+    <Plus size={20} /> Add Column
+  </AddColumnButton>
+  <UserInfo>
+    <UserName>{localStorage.getItem("email") || "Ghost"}</UserName>
+    <LogoutButton 
+      onClick={handleLogout} 
+      title="Sign out of your account"
+    >
+      Logout
+    </LogoutButton>
+  </UserInfo>
+
+</BoardHeader>
+
+{columns.length === 0 ? (
+  <EmptyState>
+    <h3>Welcome to your Kanban Board!</h3>
+    <p>Get started by creating your first column using the "Add Column" button above.</p>
+    <p>Then you can add tasks to your columns and organize your work.</p>
+  </EmptyState>
+) : (
+  <DragDropContext onDragEnd={onDragEnd}>
         <ColumnsWrapper>
           {columns.map((column) => (
             <ColumnContainer key={column._id}>
               <ColumnHeader>
   <ColumnTitle>{column.title}</ColumnTitle>
   <ColumnActions>
-    <ActionButton
-      onClick={() => {
-        setEditingColumn(column);
-        setShowColumnModal(true);
-      }}
-    >
-      <MoreVertical size={20} />
-    </ActionButton>
-    <ActionButton
-      onClick={() => handleDeleteColumn(column._id)}
-    >
-      <Trash2 size={20} />
-    </ActionButton>
-   
-    <ActionButton
-  onClick={() => {
-    setCurrentColumnId(column._id);  
-    setCurrentTaskId(null);
-    setShowTaskModal(true);
-  }}
->
-  <Plus size={20} />
-</ActionButton>
-  </ColumnActions>
+  <ActionButton
+    onClick={() => {
+      setEditingColumn(column);
+      setShowColumnModal(true);
+    }}
+    title="Edit column"
+  >
+    <MoreVertical size={20} />
+  </ActionButton>
+  <ActionButton
+    onClick={() => handleDeleteColumn(column._id)}
+    title="Delete column"
+  >
+    <Trash2 size={20} />
+  </ActionButton>
+  <ActionButton
+    onClick={() => {
+      setCurrentColumnId(column._id);  
+      setCurrentTaskId(null);
+      setShowTaskModal(true);
+    }}
+    title="Add new task"
+  >
+    <Plus size={20} />
+  </ActionButton>
+</ColumnActions>
 </ColumnHeader>
 
 
@@ -282,41 +456,55 @@ const KanbanBoard = () => {
                       >
                         {(provided) => (
                           <TaskCard
-                            ref={provided.innerRef}
-                            {...provided.draggableProps}
-                            {...provided.dragHandleProps}
-                          >
-                            <TaskTitle>{task.title}</TaskTitle>
-                            <TaskFooter>
-  <TaskAssigned>
-    {task.assignedTo || 'Unassigned'}
-  </TaskAssigned>
-  <div style={{ display: 'flex', gap: '0.5rem' }}>
-  <ActionButton
-  onClick={() => {
-    setEditingTask(task);
-    setShowTaskModal(true);
-  }}
->
-      <MoreVertical size={16} /> 
-    </ActionButton>
-    <ActionButton
-      onClick={() => handleDeleteTask(task._id)}
-    >
-      <Trash2 size={16} /> 
-    </ActionButton>
-    <ActionButton
-      onClick={() => {
-        setCurrentTaskId(task._id);
-        setShowAssignModal(true);
-      }}
-    >
-      <Users size={16} /> 
-    </ActionButton>
-  </div>
-</TaskFooter>
-
-                          </TaskCard>
+                          ref={provided.innerRef}
+                          {...provided.draggableProps}
+                          {...provided.dragHandleProps}
+                          priority={task.priority}
+                        >
+                          <TaskTitle>{task.title}</TaskTitle>
+                          {task.description && (
+                            <TaskDescription>
+                              {task.description.length > 100 
+                                ? `${task.description.slice(0, 100)}...` 
+                                : task.description}
+                              {task.description.length > 100 && (
+                                <div className="full-description">{task.description}</div>
+                              )}
+                            </TaskDescription>
+                          )}
+                          <TaskDueDate>Due: {new Date(task.dueDate).toLocaleDateString()}</TaskDueDate>
+                          <TaskFooter>
+                            <TaskAssigned>
+                              {task.assignedTo || ""}
+                            </TaskAssigned>
+                            <div style={{ display: 'flex', gap: '0.5rem' }}>
+                              <ActionButton
+                                onClick={() => {
+                                  setEditingTask(task);
+                                  setShowTaskModal(true);
+                                }}
+                                title="Edit task"
+                              >
+                                <MoreVertical size={16} />
+                              </ActionButton>
+                              <ActionButton
+                                onClick={() => handleDeleteTask(task._id)}
+                                title="Delete task"
+                              >
+                                <Trash2 size={16} />
+                              </ActionButton>
+                              <ActionButton
+                                onClick={() => {
+                                  setCurrentTaskId(task._id);
+                                  setShowAssignModal(true);
+                                }}
+                                title="Assign user"
+                              >
+                                <Users size={16} />
+                              </ActionButton>
+                            </div>
+                          </TaskFooter>
+                        </TaskCard>
                         )}
                       </Draggable>
                     ))}
@@ -327,7 +515,7 @@ const KanbanBoard = () => {
             </ColumnContainer>
           ))}
         </ColumnsWrapper>
-      </DragDropContext>
+      </DragDropContext>)}
 
       <ColumnModal
         isOpen={showColumnModal}

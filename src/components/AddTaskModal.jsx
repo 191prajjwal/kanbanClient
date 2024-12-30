@@ -145,29 +145,48 @@ const AddTaskModal = ({ onClose, onSubmit, editingTask = null, columnId }) => {
     dueDate: "",
     priority: "Medium",
     assignedTo: null,
-    columnId: columnId 
+    columnId: columnId,
   });
+
+  const [userList, setUserList] = useState([]);
+  const [isLoadingUsers, setIsLoadingUsers] = useState(false);
 
   useEffect(() => {
     if (editingTask) {
       setFormData({
         title: editingTask.title || "",
         description: editingTask.description || "",
-        dueDate: editingTask.dueDate 
-          ? new Date(editingTask.dueDate).toISOString().split('T')[0]
+        dueDate: editingTask.dueDate
+          ? new Date(editingTask.dueDate).toISOString().split("T")[0]
           : "",
         priority: editingTask.priority || "Medium",
         assignedTo: editingTask.assignedTo || null,
-        columnId: editingTask.columnId || columnId
+        columnId: editingTask.columnId || columnId,
       });
     } else {
-      
-      setFormData(prev => ({
+      setFormData((prev) => ({
         ...prev,
-        columnId: columnId
+        columnId: columnId,
       }));
     }
   }, [editingTask, columnId]);
+
+ 
+  useEffect(() => {
+    const fetchUsers = async () => {
+      setIsLoadingUsers(true);
+      try {
+        const response = await axiosInstance.get("/auth/users"); 
+        setUserList(response.data); 
+      } catch (error) {
+        console.error("Error fetching users:", error);
+      } finally {
+        setIsLoadingUsers(false);
+      }
+    };
+
+    fetchUsers();
+  }, []);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -177,16 +196,24 @@ const AddTaskModal = ({ onClose, onSubmit, editingTask = null, columnId }) => {
     }));
   };
 
+  const handleUserSelect = (e) => {
+    const selectedUserId = e.target.value;
+    setFormData((prev) => ({
+      ...prev,
+      assignedTo: selectedUserId,
+    }));
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
-    
+
     try {
       const taskData = {
         ...formData,
         columnId: formData.columnId || columnId,
       };
 
-      console.log('Submitting task data:', taskData); 
+      console.log("Submitting task data:", taskData);
       let response;
       if (editingTask) {
         response = await axiosInstance.put(`/tasks/${editingTask._id}`, taskData);
@@ -194,19 +221,17 @@ const AddTaskModal = ({ onClose, onSubmit, editingTask = null, columnId }) => {
         response = await axiosInstance.post("/tasks", taskData);
       }
 
-
       if (response.data) {
         onSubmit?.(response.data);
         onClose();
       }
     } catch (error) {
       console.error("Error managing task:", error);
-      
     }
   };
 
   if (!columnId && !editingTask?.columnId) {
-    console.error('No column ID provided');
+    console.error("No column ID provided");
     return null;
   }
 
@@ -263,13 +288,24 @@ const AddTaskModal = ({ onClose, onSubmit, editingTask = null, columnId }) => {
 
           <FormGroup>
             <Label>Assigned To</Label>
-            <Input
-              type="text"
-              name="assignedTo"
-              placeholder="Enter user ID or email"
-              value={formData.assignedTo}
-              onChange={handleChange}
-            />
+            {isLoadingUsers ? (
+              <div>Loading users...</div>
+            ) : (
+              <Select
+                name="assignedTo"
+                value={formData.assignedTo || ""}
+                onChange={handleUserSelect}
+              >
+                <option value="" disabled>
+                  Select a user
+                </option>
+                {userList.map((user) => (
+                  <option key={user._id} value={user._id}>
+                    {user.email}
+                  </option>
+                ))}
+              </Select>
+            )}
           </FormGroup>
 
           <ButtonGroup>
